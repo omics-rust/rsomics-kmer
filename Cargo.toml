@@ -2,19 +2,17 @@
 name = "rsomics-kmer"
 version = "0.2.0"
 description = "K-mer encoding, canonicalisation, ntHash rolling hash, MurmurHash3, k-mer counting for the rsomics-* tool family. Layer A primitive."
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
-repository.workspace = true
-authors.workspace = true
+edition = "2024"
+rust-version = "1.91"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/omics-rust/rsomics-world"
+authors = ["Zane Leong <efd@live.com>"]
 categories = ["science"]
 keywords = ["kmer", "bioinformatics", "nthash", "minhash", "hashing"]
 
 [dependencies]
-rsomics-common = { path = "../rsomics-common", version = "0.6" }
+rsomics-common = { version = "0.6" }
 nthash = "0.5"
 murmur3 = "0.5"
-thiserror.workspace = true
+thiserror = "2"
 
-[lints]
-workspace = true
