@@ -1,11 +1,12 @@
 [package]
 name = "rsomics-kmer"
-version = "0.2.0"
+version = "0.2.1"
 description = "K-mer encoding, canonicalisation, ntHash rolling hash, MurmurHash3, k-mer counting for the rsomics-* tool family. Layer A primitive."
 edition = "2024"
 rust-version = "1.91"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/omics-rust/rsomics-world"
+repository = "https://github.com/omics-rust/rsomics-kmer"
+readme = "README.md"
 authors = ["Zane Leong <efd@live.com>"]
 categories = ["science"]
 keywords = ["kmer", "bioinformatics", "nthash", "minhash", "hashing"]
@@ -16,3 +17,9 @@ nthash = "0.5"
 murmur3 = "0.5"
 thiserror = "2"
 
+[dev-dependencies]
+criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "codec"
+harness = false

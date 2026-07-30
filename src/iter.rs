@@ -1,6 +1,10 @@
 use crate::encode::{Kmer, encode};
 use crate::{KmerError, Result};
 
+/// An iterator over every fixed-width sequence window.
+///
+/// Unlike [`crate::RollingKmers`], this iterator yields only the
+/// `n - k + 1` complete windows, and reports a non-ACGT window as an error.
 pub struct KmerIter<'a> {
     seq: &'a [u8],
     k: usize,
@@ -10,6 +14,12 @@ pub struct KmerIter<'a> {
 }
 
 impl<'a> KmerIter<'a> {
+    /// Creates a window iterator, optionally yielding canonical encodings.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KmerError::KOutOfRange`] when `k` is outside `1..=32`, or
+    /// [`KmerError::SeqTooShort`] when `seq` is shorter than `k`.
     pub fn new(seq: &'a [u8], k: usize, canonical: bool) -> Result<Self> {
         if !(1..=32).contains(&k) {
             return Err(KmerError::KOutOfRange(k));
@@ -56,7 +66,7 @@ impl Iterator for KmerIter<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::encode::decode;
+    use crate::encode::{canonical, decode};
 
     #[test]
     fn iter_yields_n_minus_k_plus_1_kmers() {
@@ -103,5 +113,24 @@ mod tests {
         assert!(it.next().unwrap().is_ok());
         let third = it.next().unwrap();
         assert!(matches!(third, Err(KmerError::NonAcgt { .. })));
+    }
+
+    #[test]
+    fn iterator_boundaries_validate_and_round_trip() {
+        for k in [0, 33] {
+            assert!(matches!(
+                KmerIter::new(b"ACGT", k, true),
+                Err(KmerError::KOutOfRange(actual)) if actual == k
+            ));
+        }
+        for k in [1, 31, 32] {
+            let seq: Vec<_> = (0..k).map(|i| b"ACGT"[i % 4]).collect();
+            let values: Vec<_> = KmerIter::new(&seq, k, true)
+                .unwrap()
+                .collect::<Result<_>>()
+                .unwrap();
+            assert_eq!(values.len(), 1);
+            assert_eq!(values[0], canonical(encode(&seq).unwrap(), k));
+        }
     }
 }

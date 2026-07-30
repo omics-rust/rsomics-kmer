@@ -2,6 +2,9 @@ use std::io::Cursor;
 
 use murmur3::murmur3_x64_128 as upstream_murmur;
 
+/// Returns the ntHash value of the first complete k-mer, if available.
+///
+/// Invalid ntHash parameters and sequences shorter than `k` return `None`.
 pub fn nthash_one(seq: &[u8], k: usize) -> Option<u64> {
     if seq.len() < k {
         return None;
@@ -10,10 +13,19 @@ pub fn nthash_one(seq: &[u8], k: usize) -> Option<u64> {
     iter.into_iter().next()
 }
 
+/// Creates an upstream ntHash rolling iterator.
+///
+/// # Errors
+///
+/// Returns the upstream [`nthash::Error`] when its sequence or `k` constraints
+/// are not satisfied.
 pub fn nthash_iter(seq: &[u8], k: usize) -> nthash::Result<nthash::NtHashIterator<'_>> {
     nthash::NtHashIterator::new(seq, k)
 }
 
+/// Computes MurmurHash3 x64 128-bit output for `bytes` and `seed`.
+///
+/// The in-memory cursor cannot produce an I/O error.
 #[must_use]
 pub fn murmur3_x64_128(bytes: &[u8], seed: u32) -> u128 {
     let mut cur = Cursor::new(bytes);
