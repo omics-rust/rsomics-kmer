@@ -16,10 +16,10 @@ pub struct KmerCounts {
 }
 
 impl KmerCounts {
-    /// Creates an empty accumulator.
+    /// Creates an empty accumulator without validating `k`.
     ///
-    /// The length is validated by [`Self::count_seq`], including when the
-    /// supplied sequence is shorter than `k`.
+    /// [`Self::count_seq`] validates the length before reading a sequence.
+    /// Use [`Self::try_new`] when `k` comes from an external boundary.
     #[must_use]
     pub fn new(k: usize, canonical: bool) -> Self {
         Self {
@@ -27,6 +27,16 @@ impl KmerCounts {
             canonical,
             counts: HashMap::new(),
         }
+    }
+
+    /// Creates an empty accumulator after validating `k`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KmerError::KOutOfRange`] when `k` is outside `1..=32`.
+    pub fn try_new(k: usize, canonical: bool) -> Result<Self> {
+        validate_k(k)?;
+        Ok(Self::new(k, canonical))
     }
 
     /// Adds all valid windows in `seq` to the counts.
@@ -114,6 +124,22 @@ mod tests {
                 counts.count_seq(b""),
                 Err(KmerError::KOutOfRange(actual)) if actual == k
             ));
+            assert!(counts.is_empty());
+        }
+    }
+
+    #[test]
+    fn checked_constructor_rejects_invalid_k_before_counting() {
+        for k in [0, 33, usize::MAX] {
+            assert!(matches!(
+                KmerCounts::try_new(k, false),
+                Err(KmerError::KOutOfRange(actual)) if actual == k
+            ));
+        }
+        for k in [1, 32] {
+            let counts = KmerCounts::try_new(k, true).unwrap();
+            assert_eq!(counts.k, k);
+            assert!(counts.canonical);
             assert!(counts.is_empty());
         }
     }
