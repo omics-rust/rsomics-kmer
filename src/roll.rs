@@ -1,4 +1,5 @@
-use crate::encode::{Kmer, base_bits};
+use crate::encode::{Kmer, MAX_K, base_bits};
+use crate::{KmerError, Result};
 
 pub struct RollingKmers<'a> {
     seq: &'a [u8],
@@ -10,13 +11,14 @@ pub struct RollingKmers<'a> {
 }
 
 impl<'a> RollingKmers<'a> {
-    #[must_use]
-    pub fn new(seq: &'a [u8], k: usize) -> Self {
-        debug_assert!((1..=32).contains(&k));
-        Self {
+    pub fn new(seq: &'a [u8], k: usize) -> Result<Self> {
+        if !(1..=MAX_K).contains(&k) {
+            return Err(KmerError::KOutOfRange(k));
+        }
+        Ok(Self {
             seq,
             k,
-            mask: if k == 32 {
+            mask: if k == MAX_K {
                 u64::MAX
             } else {
                 (1u64 << (2 * k)) - 1
@@ -24,7 +26,7 @@ impl<'a> RollingKmers<'a> {
             pos: 0,
             current: 0,
             valid: 0,
-        }
+        })
     }
 }
 
@@ -70,7 +72,7 @@ mod tests {
     fn rolling_matches_encode() {
         let seq = b"ACGTACGTACGT";
         let k = 4;
-        let rolling: Vec<u64> = RollingKmers::new(seq, k).flatten().collect();
+        let rolling: Vec<u64> = RollingKmers::new(seq, k).unwrap().flatten().collect();
         let naive: Vec<u64> = seq.windows(k).map(|w| encode(w).unwrap()).collect();
         assert_eq!(rolling, naive);
     }
@@ -79,7 +81,7 @@ mod tests {
     fn rolling_skips_n_bearing_windows() {
         let seq = b"ACGTNACGT";
         let k = 4;
-        let results: Vec<Option<u64>> = RollingKmers::new(seq, k).collect();
+        let results: Vec<Option<u64>> = RollingKmers::new(seq, k).unwrap().collect();
         assert_eq!(results.len(), 9);
         // First valid k-mer at index k-1=3 (ACGT)
         assert!(results[0].is_none());
@@ -96,14 +98,37 @@ mod tests {
 
     #[test]
     fn rolling_empty_seq() {
-        let results: Vec<_> = RollingKmers::new(b"", 4).collect();
+        let results: Vec<_> = RollingKmers::new(b"", 4).unwrap().collect();
         assert!(results.is_empty());
     }
 
     #[test]
     fn rolling_seq_shorter_than_k() {
-        let results: Vec<_> = RollingKmers::new(b"ACG", 4).collect();
+        let results: Vec<_> = RollingKmers::new(b"ACG", 4).unwrap().collect();
         assert_eq!(results.len(), 3);
         assert!(results.iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn rolling_k32_matches_encode() {
+        let seq = b"ACGTACGTACGTACGTACGTACGTACGTACGA";
+        let rolling: Vec<u64> = RollingKmers::new(seq, 32).unwrap().flatten().collect();
+        assert_eq!(rolling, vec![encode(seq).unwrap()]);
+    }
+
+    #[test]
+    fn rolling_rejects_zero_k() {
+        assert!(matches!(
+            RollingKmers::new(b"ACGT", 0),
+            Err(KmerError::KOutOfRange(0))
+        ));
+    }
+
+    #[test]
+    fn rolling_rejects_k_above_encoding_capacity() {
+        assert!(matches!(
+            RollingKmers::new(b"ACGT", 33),
+            Err(KmerError::KOutOfRange(33))
+        ));
     }
 }

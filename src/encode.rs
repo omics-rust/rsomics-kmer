@@ -2,7 +2,7 @@ use crate::{KmerError, Result};
 
 pub type Kmer = u64;
 
-const MAX_K: usize = 32;
+pub(crate) const MAX_K: usize = 32;
 
 pub const fn base_bits(b: u8) -> Option<u64> {
     match b {
@@ -49,8 +49,17 @@ pub fn decode(kmer: Kmer, k: usize) -> Vec<u8> {
 
 #[must_use]
 pub fn reverse_complement(kmer: Kmer, k: usize) -> Kmer {
+    assert!(
+        (1..=MAX_K).contains(&k),
+        "k must be in 1..={MAX_K} (got {k})"
+    );
     let mut bits = kmer;
-    let comp = bits ^ ((1u64 << (2 * k)) - 1); // XOR with all-1s per 2-bit pair: A↔T, C↔G
+    let mask = if k == MAX_K {
+        u64::MAX
+    } else {
+        (1u64 << (2 * k)) - 1
+    };
+    let comp = bits ^ mask;
     let mut rc: u64 = 0;
     bits = comp;
     for _ in 0..k {
@@ -109,6 +118,15 @@ mod tests {
             decode(reverse_complement(encode(b"ACGT").unwrap(), 4), 4),
             b"ACGT".to_vec()
         );
+    }
+
+    #[test]
+    fn rc_k32_round_trip() {
+        let seq = b"ACGTACGTACGTACGTACGTACGTACGTACGA";
+        let bits = encode(seq).unwrap();
+        let rc = reverse_complement(bits, 32);
+        assert_eq!(decode(rc, 32), b"TCGTACGTACGTACGTACGTACGTACGTACGT".to_vec());
+        assert_eq!(reverse_complement(rc, 32), bits);
     }
 
     #[test]
