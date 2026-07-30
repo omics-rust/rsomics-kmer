@@ -12,7 +12,6 @@ categories = ["science"]
 keywords = ["kmer", "bioinformatics", "nthash", "minhash", "hashing"]
 
 [dependencies]
-rsomics-common = { version = "0.6" }
 nthash = "0.5"
 murmur3 = "0.5"
 thiserror = "2"
