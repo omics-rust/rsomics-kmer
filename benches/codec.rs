@@ -1,7 +1,8 @@
 use std::hint::black_box;
+use std::num::NonZeroUsize;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use rsomics_kmer::{RollingKmers, canonical, reverse_complement};
+use rsomics_kmer::{CanonicalMurmur64, RollingKmers, canonical, reverse_complement};
 
 fn fixture(len: usize) -> Vec<u8> {
     (0..len)
@@ -45,5 +46,21 @@ fn strand_operations(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, rolling, strand_operations);
+fn canonical_murmur(c: &mut Criterion) {
+    let sequence = fixture(1_048_576);
+    let mut hasher = CanonicalMurmur64::new(NonZeroUsize::new(31).unwrap(), 42);
+    let mut group = c.benchmark_group("canonical_murmur64");
+    group.throughput(Throughput::Bytes(sequence.len() as u64));
+    group.bench_function("k31_1m", |b| {
+        b.iter(|| {
+            hasher
+                .hashes(black_box(sequence.as_slice()))
+                .flatten()
+                .fold(0, |acc, hash| acc ^ hash)
+        });
+    });
+    group.finish();
+}
+
+criterion_group!(benches, rolling, strand_operations, canonical_murmur);
 criterion_main!(benches);

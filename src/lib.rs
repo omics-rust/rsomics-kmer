@@ -30,7 +30,9 @@ pub use encode::{
     Kmer, base_bits, canonical, decode, encode, reverse_complement, try_canonical, try_decode,
     try_reverse_complement,
 };
-pub use hash::{murmur3_x64_128, nthash_iter, nthash_one};
+pub use hash::{
+    CanonicalMurmur64, CanonicalMurmur64Hashes, murmur3_x64_128, nthash_iter, nthash_one,
+};
 pub use iter::KmerIter;
 pub use roll::RollingKmers;
 
@@ -63,6 +65,12 @@ pub enum KmerError {
         /// Rejected encoded value.
         kmer: Kmer,
         /// Declared k-mer length.
+        k: usize,
+    },
+    /// Scratch storage for a requested k-mer length cannot be reserved.
+    #[error("cannot allocate canonical hash buffers for k={k}")]
+    AllocationFailed {
+        /// Requested k-mer length.
         k: usize,
     },
 }

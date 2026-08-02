@@ -6,7 +6,8 @@
 - encoding, decoding, reverse complement, and lexicographic canonicalization;
 - fixed-window and linear-time rolling iteration;
 - exact k-mer counting;
-- ntHash and MurmurHash3 adapters.
+- ntHash and MurmurHash3 adapters;
+- allocation-reusing canonical Murmur64 windows for arbitrary non-zero `k`.
 
 The codec supports `k` in `1..=32`. A `Kmer` stores A/C/G/T as `00/01/10/11`
 in the low `2 * k` bits. Values passed to codec functions must be normalized:
@@ -33,6 +34,15 @@ assert_eq!(kmers.len(), 3);
 // Dynamic boundaries can use checked entry points.
 assert!(RollingKmers::try_new(b"ACGT", 0).is_err());
 assert!(try_decode(0, 33).is_err());
+
+let mut hasher = rsomics_kmer::CanonicalMurmur64::try_new(
+    std::num::NonZeroUsize::new(51).unwrap(),
+    42,
+)?;
+let hashes: Vec<_> = hasher
+    .hashes(b"ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT")
+    .collect();
+# Ok::<(), rsomics_kmer::KmerError>(())
 ```
 
 `RollingKmers` yields one `Option<Kmer>` per input base. Positions before the
@@ -53,7 +63,8 @@ cargo bench --bench codec
 ```
 
 The benchmark covers the rolling scanner on a one-megabase sequence with
-ambiguity runs and batched reverse-complement/canonicalization at `k = 31`.
+ambiguity runs, batched reverse-complement/canonicalization, and the canonical
+Murmur64 consumer path with reusable scratch buffers.
 
 ## License
 
