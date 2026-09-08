@@ -20,7 +20,7 @@ jobs:
             revision: d9734e51c4ed557f6d8790d97a686717ebc4769e
             benchmark: operations
           - product: rsomics-sketch
-            revision: 8bacc91b4ad8892f93e21adbf02211eeedbf7703
+            revision: f430522bb3d3c6fd38e08af758dca11e5262f47b
             benchmark: sketch
     env:
       RSOMICS_REQUIRE_SEQKIT: "1"
@@ -95,6 +95,7 @@ jobs:
           cargo test --release --locked --all-targets --all-features
           if [[ "$CONSUMER_PRODUCT" == rsomics-sketch ]]; then
             cargo test --locked --test oracle -- --ignored
+            cargo test --release --locked --test oracle -- --ignored
           fi
           cargo bench --locked --bench "$CONSUMER_BENCHMARK" -- --test
       - uses: actions/upload-artifact@v7.0.1
