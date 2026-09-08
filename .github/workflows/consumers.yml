@@ -1,0 +1,105 @@
+name: Consumer contracts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15]
+        consumer:
+          - product: rsomics-seq
+            revision: d9734e51c4ed557f6d8790d97a686717ebc4769e
+            benchmark: operations
+          - product: rsomics-sketch
+            revision: 8bacc91b4ad8892f93e21adbf02211eeedbf7703
+            benchmark: sketch
+    env:
+      CARGO_HOME: ${{ runner.temp }}/cargo-home
+      CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target
+      TMPDIR: ${{ runner.temp }}
+      RSOMICS_REQUIRE_SEQKIT: "1"
+      SOURMASH: sourmash
+    defaults:
+      run:
+        working-directory: consumer
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          repository: omics-rust/${{ matrix.consumer.product }}
+          ref: ${{ matrix.consumer.revision }}
+          path: consumer
+      - uses: actions/checkout@v6
+        if: matrix.consumer.product == 'rsomics-seq'
+        with:
+          repository: shenwei356/seqkit
+          ref: d13b5fa388cc869de05abe1bdb07980eef5efb4e
+          path: seqkit
+      - uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-go@v6
+        if: matrix.consumer.product == 'rsomics-seq'
+        with:
+          go-version: "1.25.5"
+          cache: false
+      - name: Build pinned SeqKit oracle
+        if: matrix.consumer.product == 'rsomics-seq'
+        working-directory: seqkit
+        run: |
+          go build -trimpath -o "$RUNNER_TEMP/seqkit" ./seqkit
+          test "$("$RUNNER_TEMP/seqkit" version)" = "seqkit v2.13.0"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - uses: actions/setup-python@v6
+        if: matrix.consumer.product == 'rsomics-sketch'
+        with:
+          python-version: '3.12'
+      - name: Install pinned sourmash oracle
+        if: matrix.consumer.product == 'rsomics-sketch'
+        run: |
+          python -m pip install sourmash==4.9.4
+          test "$(sourmash --version)" = "sourmash 4.9.4"
+      - name: Verify consumer with exact candidate dependency
+        env:
+          CONSUMER_PRODUCT: ${{ matrix.consumer.product }}
+          CONSUMER_REVISION: ${{ matrix.consumer.revision }}
+          CONSUMER_BENCHMARK: ${{ matrix.consumer.benchmark }}
+        run: |
+          candidate_cargo() {
+            cargo --config 'patch.crates-io.rsomics-kmer.git="https://github.com/omics-rust/rsomics-kmer"' \
+              --config "patch.crates-io.rsomics-kmer.rev=\"$GITHUB_SHA\"" "$@"
+          }
+          test "$(git rev-parse HEAD)" = "$CONSUMER_REVISION"
+          candidate_cargo update -p rsomics-kmer
+          candidate_cargo metadata --locked --format-version 1 > "$RUNNER_TEMP/consumer-metadata.json"
+          jq -e --arg sha "$GITHUB_SHA" '
+            [.packages[] | select(.name == "rsomics-kmer")] |
+            length == 1 and (.[0].source | startswith("git+https://github.com/omics-rust/rsomics-kmer?") and endswith("#" + $sha))
+          ' "$RUNNER_TEMP/consumer-metadata.json"
+          cp Cargo.lock "$RUNNER_TEMP/consumer-Cargo.lock"
+          candidate_cargo fmt --all -- --check
+          candidate_cargo clippy --locked --all-targets --all-features -- -D warnings
+          candidate_cargo test --locked --all-targets --all-features
+          candidate_cargo test --release --locked --all-targets --all-features
+          if [[ "$CONSUMER_PRODUCT" == rsomics-sketch ]]; then
+            candidate_cargo test --locked --test oracle -- --ignored
+          fi
+          candidate_cargo bench --locked --bench "$CONSUMER_BENCHMARK" -- --test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: consumer-${{ matrix.consumer.product }}-${{ matrix.runner }}
+          path: |
+            ${{ runner.temp }}/consumer-metadata.json
+            ${{ runner.temp }}/consumer-Cargo.lock
+          retention-days: 90
