@@ -1,0 +1,80 @@
+name: Canonical hashing measurements
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paired:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          ref: d89e2df0d8eae38b64eb7b43a41f57436fc25bb4
+          path: baseline
+      - name: Use isolated runner build paths
+        run: |
+          echo "CARGO_HOME=$RUNNER_TEMP/cargo-home" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/target-candidate" >> "$GITHUB_ENV"
+          echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@1.91.0
+      - name: Record source and machine provenance
+        run: |
+          mkdir -p "$RUNNER_TEMP/measurements"
+          cmp baseline/benches/codec.rs benches/codec.rs
+          cmp baseline/Cargo.toml Cargo.toml
+          cmp baseline/Cargo.lock Cargo.lock
+          {
+            date -u
+            uname -a
+            if [[ "$RUNNER_OS" == Linux ]]; then lscpu; else sysctl -n machdep.cpu.brand_string; fi
+            rustc -Vv
+            cargo -V
+            git rev-parse HEAD
+            git -C baseline rev-parse HEAD
+            shasum -a 256 benches/codec.rs Cargo.lock src/hash.rs baseline/src/hash.rs
+          } > "$RUNNER_TEMP/measurements/provenance.txt"
+      - name: Measure five alternating baseline and candidate pairs
+        run: |
+          for variant in baseline candidate; do
+            manifest=Cargo.toml
+            if [[ "$variant" == baseline ]]; then manifest=baseline/Cargo.toml; fi
+            CARGO_TARGET_DIR="$RUNNER_TEMP/target-$variant" \
+              cargo bench --manifest-path "$manifest" --locked --bench codec --no-run
+          done
+          for round in 1 2 3 4 5; do
+            variants=(baseline candidate)
+            if (( round % 2 == 0 )); then variants=(candidate baseline); fi
+            for variant in "${variants[@]}"; do
+              manifest=Cargo.toml
+              if [[ "$variant" == baseline ]]; then manifest=baseline/Cargo.toml; fi
+              CARGO_TARGET_DIR="$RUNNER_TEMP/target-$variant" \
+                cargo bench --manifest-path "$manifest" --locked --bench codec -- \
+                  canonical_murmur64 --sample-size 50 --warm-up-time 1 \
+                  --measurement-time 3 --save-baseline "round-$round" \
+                2>&1 | tee "$RUNNER_TEMP/measurements/$variant-$round.log"
+            done
+          done
+          for variant in baseline candidate; do
+            cp -R "$RUNNER_TEMP/target-$variant/criterion/canonical_murmur64" \
+              "$RUNNER_TEMP/measurements/$variant"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: canonical-hashing-${{ matrix.runner }}
+          path: ${{ runner.temp }}/measurements
+          if-no-files-found: error
+          retention-days: 90
