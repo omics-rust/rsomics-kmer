@@ -77,26 +77,25 @@ jobs:
           CONSUMER_REVISION: ${{ matrix.consumer.revision }}
           CONSUMER_BENCHMARK: ${{ matrix.consumer.benchmark }}
         run: |
-          candidate_cargo() {
-            cargo --config 'patch.crates-io.rsomics-kmer.git="https://github.com/omics-rust/rsomics-kmer"' \
-              --config "patch.crates-io.rsomics-kmer.rev=\"$GITHUB_SHA\"" "$@"
-          }
+          test ! -e "$CARGO_HOME/config.toml"
+          printf '[patch.crates-io.rsomics-kmer]\ngit = "https://github.com/omics-rust/rsomics-kmer"\nrev = "%s"\n' \
+            "$GITHUB_SHA" > "$CARGO_HOME/config.toml"
           test "$(git rev-parse HEAD)" = "$CONSUMER_REVISION"
-          candidate_cargo update -p rsomics-kmer
-          candidate_cargo metadata --locked --format-version 1 > "$RUNNER_TEMP/consumer-metadata.json"
+          cargo update -p rsomics-kmer
+          cargo metadata --locked --format-version 1 > "$RUNNER_TEMP/consumer-metadata.json"
           jq -e --arg sha "$GITHUB_SHA" '
             [.packages[] | select(.name == "rsomics-kmer")] |
             length == 1 and (.[0].source | startswith("git+https://github.com/omics-rust/rsomics-kmer?") and endswith("#" + $sha))
           ' "$RUNNER_TEMP/consumer-metadata.json"
           cp Cargo.lock "$RUNNER_TEMP/consumer-Cargo.lock"
-          candidate_cargo fmt --all -- --check
-          candidate_cargo clippy --locked --all-targets --all-features -- -D warnings
-          candidate_cargo test --locked --all-targets --all-features
-          candidate_cargo test --release --locked --all-targets --all-features
+          cargo fmt --all -- --check
+          cargo clippy --locked --all-targets --all-features -- -D warnings
+          cargo test --locked --all-targets --all-features
+          cargo test --release --locked --all-targets --all-features
           if [[ "$CONSUMER_PRODUCT" == rsomics-sketch ]]; then
-            candidate_cargo test --locked --test oracle -- --ignored
+            cargo test --locked --test oracle -- --ignored
           fi
-          candidate_cargo bench --locked --bench "$CONSUMER_BENCHMARK" -- --test
+          cargo bench --locked --bench "$CONSUMER_BENCHMARK" -- --test
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -104,4 +103,5 @@ jobs:
           path: |
             ${{ runner.temp }}/consumer-metadata.json
             ${{ runner.temp }}/consumer-Cargo.lock
+            ${{ runner.temp }}/cargo-home/config.toml
           retention-days: 90
