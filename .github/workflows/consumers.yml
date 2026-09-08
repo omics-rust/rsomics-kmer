@@ -23,9 +23,6 @@ jobs:
             revision: 8bacc91b4ad8892f93e21adbf02211eeedbf7703
             benchmark: sketch
     env:
-      CARGO_HOME: ${{ runner.temp }}/cargo-home
-      CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target
-      TMPDIR: ${{ runner.temp }}
       RSOMICS_REQUIRE_SEQKIT: "1"
       SOURMASH: sourmash
     defaults:
@@ -39,6 +36,11 @@ jobs:
           repository: omics-rust/${{ matrix.consumer.product }}
           ref: ${{ matrix.consumer.revision }}
           path: consumer
+      - name: Use runner scratch for builds and dependencies
+        run: |
+          echo "CARGO_HOME=$RUNNER_TEMP/cargo-home" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
+          echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/checkout@v6
         if: matrix.consumer.product == 'rsomics-seq'
         with:
