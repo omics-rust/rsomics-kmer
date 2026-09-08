@@ -71,6 +71,18 @@ jobs:
             cp -R "$RUNNER_TEMP/target-$variant/criterion/canonical_murmur64" \
               "$RUNNER_TEMP/measurements/$variant"
           done
+      - name: Retain optimized benchmark assembly
+        run: |
+          shopt -s nullglob
+          for variant in baseline candidate; do
+            manifest=Cargo.toml
+            if [[ "$variant" == baseline ]]; then manifest=baseline/Cargo.toml; fi
+            CARGO_TARGET_DIR="$RUNNER_TEMP/target-$variant" \
+              cargo rustc --manifest-path "$manifest" --locked --profile bench --bench codec -- --emit=asm
+            assembly=("$RUNNER_TEMP/target-$variant"/release/deps/codec-*.s)
+            test "${#assembly[@]}" -eq 1
+            cp "${assembly[0]}" "$RUNNER_TEMP/measurements/$variant.s"
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
