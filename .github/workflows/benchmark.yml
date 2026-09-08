@@ -21,6 +21,7 @@ jobs:
     env:
       BASELINE_REVISION: d89e2df0d8eae38b64eb7b43a41f57436fc25bb4
       REFERENCE_REVISION: 23e42f37e9578e59d9935c0d529b07d1aac49eb9
+      CANDIDATE_REVISION: 3d4b7516c9914724ebc1c96031b046c9c71cbf1c
     steps:
       - uses: actions/checkout@v6
       - name: Use isolated runner build paths
@@ -36,13 +37,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/harness/src" "$RUNNER_TEMP/measurements"
           cp .github/benchmarks/compare-hashes.rs "$RUNNER_TEMP/harness/src/main.rs"
           printf '[package]\nname = "canonical-hash-comparison"\nversion = "0.0.0"\nedition = "2024"\npublish = false\n\n[dependencies]\nbaseline = { package = "rsomics-kmer", git = "https://github.com/omics-rust/rsomics-kmer", rev = "%s" }\nreference = { package = "rsomics-kmer", git = "https://github.com/omics-rust/rsomics-kmer", rev = "%s" }\ncandidate = { package = "rsomics-kmer", git = "https://github.com/omics-rust/rsomics-kmer", rev = "%s" }\n' \
-            "$BASELINE_REVISION" "$REFERENCE_REVISION" "$GITHUB_SHA" > "$RUNNER_TEMP/harness/Cargo.toml"
+            "$BASELINE_REVISION" "$REFERENCE_REVISION" "$CANDIDATE_REVISION" > "$RUNNER_TEMP/harness/Cargo.toml"
       - name: Verify all three compiled dependency identities
         working-directory: ${{ runner.temp }}/harness
         run: |
           cargo generate-lockfile
           cargo metadata --locked --format-version 1 > "$RUNNER_TEMP/measurements/metadata.json"
-          jq -e --arg b "$BASELINE_REVISION" --arg r "$REFERENCE_REVISION" --arg c "$GITHUB_SHA" '
+          jq -e --arg b "$BASELINE_REVISION" --arg r "$REFERENCE_REVISION" --arg c "$CANDIDATE_REVISION" '
             ([.packages[] | select(.name == "rsomics-kmer") | .source | split("#")[-1]] | sort) == ([$b, $r, $c] | sort)
             and .target_directory == env.CARGO_TARGET_DIR
           ' "$RUNNER_TEMP/measurements/metadata.json"

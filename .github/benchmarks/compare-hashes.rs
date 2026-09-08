@@ -16,13 +16,20 @@ const ORDERS: [[usize; 3]; 6] = [
 ];
 const NAMES: [&str; 3] = ["baseline", "reference", "candidate"];
 
+enum Hashes<'hasher, 'sequence> {
+    Baseline(baseline::CanonicalMurmur64Hashes<'hasher, 'sequence>),
+    Reference(reference::CanonicalMurmur64Hashes<'hasher, 'sequence>),
+    Candidate(candidate::CanonicalMurmur64Hashes<'hasher, 'sequence>),
+}
+
 fn fixture(len: usize) -> Vec<u8> {
     (0..len)
         .map(|i| if i % 4_093 == 0 { b'N' } else { b"ACGT"[i % 4] })
         .collect()
 }
 
-fn checksum(hashes: impl Iterator<Item = Option<u64>>) -> u64 {
+#[inline(never)]
+fn checksum(hashes: &mut dyn Iterator<Item = Option<u64>>) -> u64 {
     hashes.flatten().fold(0, |acc, hash| acc ^ hash)
 }
 
@@ -38,18 +45,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut baseline = baseline::CanonicalMurmur64::try_new(k, 42)?;
     let mut reference = reference::CanonicalMurmur64::try_new(k, 42)?;
     let mut candidate = candidate::CanonicalMurmur64::try_new(k, 42)?;
-    let expected = checksum(baseline.hashes(&sequence));
+    let expected = checksum(&mut baseline.hashes(&sequence));
     let mut observations = Vec::with_capacity(66 * 3);
 
     for round in 0..66 {
         for (position, &variant) in ORDERS[round % ORDERS.len()].iter().enumerate() {
-            let started = Instant::now();
-            let sum = match variant {
-                0 => checksum(baseline.hashes(black_box(&sequence))),
-                1 => checksum(reference.hashes(black_box(&sequence))),
-                2 => checksum(candidate.hashes(black_box(&sequence))),
+            let mut selected = match variant {
+                0 => Hashes::Baseline(baseline.hashes(black_box(&sequence))),
+                1 => Hashes::Reference(reference.hashes(black_box(&sequence))),
+                2 => Hashes::Candidate(candidate.hashes(black_box(&sequence))),
                 _ => unreachable!(),
             };
+            let hashes: &mut dyn Iterator<Item = Option<u64>> = match &mut selected {
+                Hashes::Baseline(hashes) => hashes,
+                Hashes::Reference(hashes) => hashes,
+                Hashes::Candidate(hashes) => hashes,
+            };
+            let started = Instant::now();
+            let sum = checksum(black_box(hashes));
             let elapsed = started.elapsed().as_nanos();
             black_box(sum);
             if sum != expected {
@@ -104,6 +117,6 @@ mod tests {
 
     #[test]
     fn checksum_excludes_invalid_windows() {
-        assert_eq!(checksum([Some(4), None, Some(8)].into_iter()), 12);
+        assert_eq!(checksum(&mut [Some(4), None, Some(8)].into_iter()), 12);
     }
 }
