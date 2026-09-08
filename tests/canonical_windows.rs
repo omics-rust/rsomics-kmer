@@ -11,7 +11,6 @@ fn assert_exhausted(mut hashes: CanonicalMurmur64Hashes<'_, '_>) {
 }
 
 #[test]
-#[ignore = "known short-window bounds regression"]
 fn empty_sequences_are_exhausted() {
     for k in [1, 31, 51] {
         let mut hasher = CanonicalMurmur64::try_new(NonZeroUsize::new(k).unwrap(), 42).unwrap();
@@ -20,7 +19,6 @@ fn empty_sequences_are_exhausted() {
 }
 
 #[test]
-#[ignore = "known short-window bounds regression"]
 fn short_sequences_are_exhausted_and_hasher_remains_reusable() {
     for k in [2, 31, 51] {
         let mut hasher = CanonicalMurmur64::try_new(NonZeroUsize::new(k).unwrap(), 42).unwrap();

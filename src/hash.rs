@@ -110,7 +110,7 @@ impl Iterator for CanonicalMurmur64Hashes<'_, '_> {
     type Item = Option<u64>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.start > self.sequence.len().saturating_sub(self.k) {
+        if self.sequence.len().saturating_sub(self.start) < self.k {
             return None;
         }
 
