@@ -2,6 +2,11 @@ name: Canonical hashing measurements
 
 on:
   workflow_dispatch:
+    inputs:
+      assembly_only:
+        description: Collect code generation without rerunning measurements
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -47,6 +52,7 @@ jobs:
             shasum -a 256 benches/codec.rs Cargo.lock src/hash.rs baseline/src/hash.rs
           } > "$RUNNER_TEMP/measurements/provenance.txt"
       - name: Measure five alternating baseline and candidate pairs
+        if: '!inputs.assembly_only'
         run: |
           for variant in baseline candidate; do
             manifest=Cargo.toml
@@ -71,15 +77,15 @@ jobs:
             cp -R "$RUNNER_TEMP/target-$variant/criterion/canonical_murmur64" \
               "$RUNNER_TEMP/measurements/$variant"
           done
-      - name: Retain optimized benchmark assembly
+      - name: Retain optimized hashing library assembly
         run: |
           shopt -s nullglob
           for variant in baseline candidate; do
             manifest=Cargo.toml
             if [[ "$variant" == baseline ]]; then manifest=baseline/Cargo.toml; fi
             CARGO_TARGET_DIR="$RUNNER_TEMP/target-$variant" \
-              cargo rustc --manifest-path "$manifest" --locked --profile bench --bench codec -- --emit=asm
-            assembly=("$RUNNER_TEMP/target-$variant"/release/deps/codec-*.s)
+              cargo rustc --manifest-path "$manifest" --locked --release --lib -- --emit=asm
+            assembly=("$RUNNER_TEMP/target-$variant"/release/deps/rsomics_kmer-*.s)
             test "${#assembly[@]}" -eq 1
             cp "${assembly[0]}" "$RUNNER_TEMP/measurements/$variant.s"
           done
