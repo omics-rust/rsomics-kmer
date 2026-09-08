@@ -97,7 +97,7 @@ jobs:
             cargo test --locked --test oracle -- --ignored
           fi
           cargo bench --locked --bench "$CONSUMER_BENCHMARK" -- --test
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
           name: consumer-${{ matrix.consumer.product }}-${{ matrix.runner }}
