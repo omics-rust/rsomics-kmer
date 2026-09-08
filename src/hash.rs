@@ -109,7 +109,6 @@ pub struct CanonicalMurmur64Hashes<'hasher, 'sequence> {
 impl Iterator for CanonicalMurmur64Hashes<'_, '_> {
     type Item = Option<u64>;
 
-    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.sequence.len() < self.k || self.start > self.sequence.len() - self.k {
             return None;
