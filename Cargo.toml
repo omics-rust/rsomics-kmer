@@ -1,6 +1,6 @@
 [package]
 name = "rsomics-kmer"
-version = "0.2.2"
+version = "0.2.3"
 description = "K-mer encoding, canonicalisation, ntHash rolling hash, MurmurHash3, k-mer counting for the rsomics-* tool family. Layer A primitive."
 edition = "2024"
 rust-version = "1.91"
