@@ -27,11 +27,9 @@ assert_eq!(decode(encoded, 4), b"ACGT");
 let reverse = reverse_complement(encoded, 4);
 assert_eq!(canonical(encoded, 4), encoded.min(reverse));
 
-// Existing 0.2 callers retain the direct iterator constructor.
 let kmers: Vec<_> = RollingKmers::new(b"ACGTAC", 4).flatten().collect();
 assert_eq!(kmers.len(), 3);
 
-// Dynamic boundaries can use checked entry points.
 assert!(RollingKmers::try_new(b"ACGT", 0).is_err());
 assert!(try_decode(0, 33).is_err());
 
@@ -42,6 +40,8 @@ let mut hasher = rsomics_kmer::CanonicalMurmur64::try_new(
 let hashes: Vec<_> = hasher
     .hashes(b"ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT")
     .collect();
+assert_eq!(hashes.len(), 2);
+assert_eq!(hasher.hashes(b"ACG").next(), None);
 # Ok::<(), rsomics_kmer::KmerError>(())
 ```
 
@@ -49,6 +49,11 @@ let hashes: Vec<_> = hasher
 first complete window are `None`; non-ACGT bytes reset the rolling state, so
 windows spanning ambiguity are also `None`. Flattening the iterator yields only
 valid k-mers.
+
+`CanonicalMurmur64` yields one item per complete window. Inputs shorter than
+`k`, including empty input, yield no items. Complete windows containing
+non-ACGT bytes yield `None`; valid windows are normalized to uppercase and
+canonicalized across both strands before hashing.
 
 The infallible `decode`, `reverse_complement`, `canonical`, and
 `RollingKmers::new` APIs fail loudly when their documented representation or
