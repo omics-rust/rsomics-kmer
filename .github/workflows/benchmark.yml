@@ -2,11 +2,6 @@ name: Canonical hashing measurements
 
 on:
   workflow_dispatch:
-    inputs:
-      assembly_only:
-        description: Collect code generation without rerunning measurements
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -15,7 +10,7 @@ jobs:
   paired:
     if: github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -23,31 +18,41 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      BASELINE_REVISION: d89e2df0d8eae38b64eb7b43a41f57436fc25bb4
+      REFERENCE_REVISION: 23e42f37e9578e59d9935c0d529b07d1aac49eb9
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/checkout@v6
-        with:
-          ref: d89e2df0d8eae38b64eb7b43a41f57436fc25bb4
-          path: baseline
-      - uses: actions/checkout@v6
-        with:
-          ref: 23e42f37e9578e59d9935c0d529b07d1aac49eb9
-          path: reference
       - name: Use isolated runner build paths
         run: |
           echo "CARGO_HOME=$RUNNER_TEMP/cargo-home" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/target-candidate" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/target-harness" >> "$GITHUB_ENV"
           echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          components: rustfmt, clippy
+      - name: Create an unpublished comparison harness
+        run: |
+          mkdir -p "$RUNNER_TEMP/harness/src" "$RUNNER_TEMP/measurements"
+          cp .github/benchmarks/compare-hashes.rs "$RUNNER_TEMP/harness/src/main.rs"
+          printf '[package]\nname = "canonical-hash-comparison"\nversion = "0.0.0"\nedition = "2024"\npublish = false\n\n[dependencies]\nbaseline = { package = "rsomics-kmer", git = "https://github.com/omics-rust/rsomics-kmer", rev = "%s" }\nreference = { package = "rsomics-kmer", git = "https://github.com/omics-rust/rsomics-kmer", rev = "%s" }\ncandidate = { package = "rsomics-kmer", git = "https://github.com/omics-rust/rsomics-kmer", rev = "%s" }\n' \
+            "$BASELINE_REVISION" "$REFERENCE_REVISION" "$GITHUB_SHA" > "$RUNNER_TEMP/harness/Cargo.toml"
+      - name: Verify all three compiled dependency identities
+        working-directory: ${{ runner.temp }}/harness
+        run: |
+          cargo generate-lockfile
+          cargo metadata --locked --format-version 1 > "$RUNNER_TEMP/measurements/metadata.json"
+          jq -e --arg b "$BASELINE_REVISION" --arg r "$REFERENCE_REVISION" --arg c "$GITHUB_SHA" '
+            ([.packages[] | select(.name == "rsomics-kmer") | .source | split("#")[-1]] | sort) == ([$b, $r, $c] | sort)
+            and .target_directory == env.CARGO_TARGET_DIR
+          ' "$RUNNER_TEMP/measurements/metadata.json"
+          cp Cargo.toml Cargo.lock src/main.rs "$RUNNER_TEMP/measurements/"
+          cargo fmt --all -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+          cargo build --locked --release
       - name: Record source and machine provenance
         run: |
-          mkdir -p "$RUNNER_TEMP/measurements"
-          cmp baseline/benches/codec.rs benches/codec.rs
-          cmp baseline/Cargo.toml Cargo.toml
-          cmp baseline/Cargo.lock Cargo.lock
-          cmp reference/benches/codec.rs benches/codec.rs
-          cmp reference/Cargo.toml Cargo.toml
-          cmp reference/Cargo.lock Cargo.lock
           {
             date -u
             uname -a
@@ -55,60 +60,26 @@ jobs:
             rustc -Vv
             cargo -V
             git rev-parse HEAD
-            git -C baseline rev-parse HEAD
-            git -C reference rev-parse HEAD
-            shasum -a 256 benches/codec.rs Cargo.lock src/hash.rs baseline/src/hash.rs reference/src/hash.rs
+            shasum -a 256 .github/benchmarks/compare-hashes.rs "$CARGO_TARGET_DIR/release/canonical-hash-comparison"
+            jq -r '.packages[] | select(.name == "rsomics-kmer") | .manifest_path' "$RUNNER_TEMP/measurements/metadata.json" |
+              while IFS= read -r manifest; do shasum -a 256 "$(dirname "$manifest")/src/hash.rs"; done
           } > "$RUNNER_TEMP/measurements/provenance.txt"
-      - name: Measure six balanced baseline, reference and candidate triplets
-        if: '!inputs.assembly_only'
+      - name: Interleave variants in one process
         run: |
-          for variant in baseline reference candidate; do
-            manifest=Cargo.toml
-            if [[ "$variant" != candidate ]]; then manifest="$variant/Cargo.toml"; fi
-            CARGO_TARGET_DIR="$RUNNER_TEMP/target-$variant" \
-              cargo bench --manifest-path "$manifest" --locked --bench codec --no-run
-          done
-          for round in 1 2 3 4 5 6; do
-            case "$round" in
-              1) variants=(baseline reference candidate) ;;
-              2) variants=(candidate reference baseline) ;;
-              3) variants=(reference candidate baseline) ;;
-              4) variants=(baseline candidate reference) ;;
-              5) variants=(candidate baseline reference) ;;
-              6) variants=(reference baseline candidate) ;;
-            esac
-            for variant in "${variants[@]}"; do
-              manifest=Cargo.toml
-              if [[ "$variant" != candidate ]]; then manifest="$variant/Cargo.toml"; fi
-              CARGO_TARGET_DIR="$RUNNER_TEMP/target-$variant" \
-                cargo bench --manifest-path "$manifest" --locked --bench codec -- \
-                  canonical_murmur64 --sample-size 50 --warm-up-time 1 \
-                  --measurement-time 3 --save-baseline "round-$round" \
-                2>&1 | tee "$RUNNER_TEMP/measurements/$variant-$round.log"
-            done
-          done
-          for variant in baseline reference candidate; do
-            cp -R "$RUNNER_TEMP/target-$variant/criterion/canonical_murmur64" \
-              "$RUNNER_TEMP/measurements/$variant"
-          done
-      - name: Retain optimized library and caller assembly
-        run: |
-          shopt -s nullglob
-          for variant in baseline reference candidate; do
-            manifest=Cargo.toml
-            if [[ "$variant" != candidate ]]; then manifest="$variant/Cargo.toml"; fi
-            CARGO_TARGET_DIR="$RUNNER_TEMP/target-$variant" \
-              cargo rustc --manifest-path "$manifest" --locked --release --lib -- --emit=asm
-            assembly=("$RUNNER_TEMP/target-$variant"/release/deps/rsomics_kmer-*.s)
-            test "${#assembly[@]}" -eq 1
-            cp "${assembly[0]}" "$RUNNER_TEMP/measurements/$variant.s"
-            CARGO_TARGET_DIR="$RUNNER_TEMP/target-$variant" \
-              cargo rustc --manifest-path "$manifest" --locked --profile bench --bench codec -- --emit=asm
-            assembly=("$RUNNER_TEMP/target-$variant"/release/deps/codec-*.s)
-            test "${#assembly[@]}" -eq 1
-            cp "${assembly[0]}" "$RUNNER_TEMP/measurements/$variant-bench.s"
-          done
-      - uses: actions/upload-artifact@v4
+          binary="$CARGO_TARGET_DIR/release/canonical-hash-comparison"
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            cpu_list=$(awk '$1 == "Cpus_allowed_list:" { print $2 }' /proc/self/status)
+            bench_cpu=${cpu_list%%[-,]*}
+            echo "cpu_affinity=$bench_cpu" >> "$RUNNER_TEMP/measurements/provenance.txt"
+            taskset -c "$bench_cpu" "$binary" "$RUNNER_TEMP/measurements"
+          else
+            echo "cpu_affinity=unavailable" >> "$RUNNER_TEMP/measurements/provenance.txt"
+            "$binary" "$RUNNER_TEMP/measurements"
+          fi
+          shasum -a 256 "$RUNNER_TEMP/measurements/input.bin" >> "$RUNNER_TEMP/measurements/provenance.txt"
+          cat "$RUNNER_TEMP/measurements/observations.csv"
+          cp "$binary" "$RUNNER_TEMP/measurements/"
+      - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
           name: canonical-hashing-${{ matrix.runner }}
